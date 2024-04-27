@@ -16,6 +16,7 @@ let muted = false;
 let cameraOff = false;
 let roomName;
 let myPeerConnection;
+let myDataChannel;
 
 async function getCameras() {
     try {
@@ -89,6 +90,14 @@ async function handleCameraChange() {
     } else {
         myStream.getAudioTracks().forEach((track) => (track.enabled = true));
     }
+    if (myPeerConnection) {
+        const videoTrack = myStream.getVideoTracks()[0];
+        const videoSender = myPeerConnection
+            .getSenders()
+            .find((sender) => sender.track.kind === "video");
+        videoSender.replaceTrack(videoTrack);
+
+    }
 }
 muteBtn.addEventListener("click", handleMuteClick);
 cameraBtn.addEventListener("click", handleCameraClick);
@@ -115,6 +124,9 @@ async function handleWelcomeSubmit(event) {
 welcomeForm.addEventListener("submit", handleWelcomeSubmit);
 
 socket.on("welcome", async () => {
+    myDataChannel = myPeerConnection.createDataChannel("chat");
+    myDataChannel.addEventListener("message", console.log);
+    console.log("data channel");
     const offer = await myPeerConnection.createOffer();
     myPeerConnection.setLocalDescription(offer);
     console.log("sent the offer");
@@ -122,6 +134,13 @@ socket.on("welcome", async () => {
 });
 
 socket.on("offer", async (offer) => {
+    myPeerConnection.addEventListener("datachannel", (event) => {
+        myDataChannel.event.channel;
+        myDataChannel.addEventListener("message,console.log");
+    });
+
+    console.log("received the offer");
+
     myPeerConnection.setRemoteDescription(offer);
     const answer = await myPeerConnection.createAnswer();
     myPeerConnection.setLocalDescription(answer);
@@ -133,9 +152,37 @@ socket.on("answer", (answer) => {
 
 })
 
+socket.on("ice", (ice) => {
+    myPeerConnection.addIceCandidate(ice);
+})
+
 function makeConnection() {
-    myPeerConnection = new RTCPeerConnection();
+    myPeerConnection = new RTCPeerConnection({
+        iceServers: [
+            {
+                urls: [
+                    "stun:stun.l.google.com:19302",
+                    "stun:stun1.l.google.com:19302",
+                    "stun:stun2.l.google.com:19302",
+                    "stun:stun3.l.google.com:19302",
+                    "stun:stun4.l.google.com:19302",
+                ],
+            },
+        ]
+    });
+    myPeerConnection.addEventListener("icecandidate", handleIce);
+    myPeerConnection.addEventListener("addstream", handleAddStream);
     myStream
         .getTracks()
         .forEach((track) => myPeerConnection.addTrack(track, myStream));
+}
+
+function handleIce(data) {
+    socket.emit("ice", data.candidate, roomName);
+
+}
+
+function handleAddStream(data) {
+    const peerFace = document.getElementById("peerFace");
+    peerFace.srcObject = data.stream;
 }
